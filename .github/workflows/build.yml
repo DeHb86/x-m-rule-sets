@@ -1,0 +1,105 @@
+name: Build routing rule sets
+
+on:
+  push:
+    branches: [main]
+    paths: [build.py, sources.json, .github/workflows/build.yml]
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  schedule:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python3 - <<'PY'
+          import datetime as dt
+          import os
+
+          now = dt.datetime.now(dt.timezone(dt.timedelta(hours=3))).date()
+          anchor = dt.date(2026, 11, 19)
+          run = os.environ["EVENT_NAME"] != "schedule" or (now - anchor).days % 3 == 0
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"run={str(run).lower()}", file=output)
+          PY
+
+  build:
+    needs: schedule
+    if: needs.schedule.outputs.run == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Build and validate
+        run: python build.py --output out
+      - name: Upload routing files
+        uses: actions/upload-artifact@v4
+        with:
+          name: routing-rule-sets
+          path: out/
+          if-no-files-found: error
+      - name: Notify Telegram
+        if: always()
+        shell: pwsh
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BUILD_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          @'
+          import json
+          import os
+          from pathlib import Path
+          from urllib.error import HTTPError, URLError
+          from urllib.request import Request, urlopen
+
+          token = os.environ["TELEGRAM_BOT_TOKEN"]
+          chat = os.environ["TELEGRAM_CHAT_ID"]
+          if not token or not chat:
+              print("Telegram secrets are not configured.")
+              raise SystemExit(0)
+
+          status = os.environ["BUILD_STATUS"]
+          if status == "success":
+              manifest = json.loads(Path("out/manifest.json").read_text(encoding="utf-8"))
+              message = (
+                  "Сборка x-m-rule-sets прошла успешно. "
+                  f"GeoSite: {len(manifest['domain_categories'])} категорий. "
+                  f"GeoIP: {len(manifest['ip_categories'])} категорий."
+              )
+          else:
+              error = Path("build-error.txt")
+              reason = error.read_text(encoding="utf-8") if error.exists() else "См. журнал запуска."
+              message = f"Сборка x-m-rule-sets: {status}. {reason}"
+          message += "\n" + os.environ["RUN_URL"]
+
+          request = Request(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data=json.dumps({"chat_id": chat, "text": message}).encode("utf-8"),
+              headers={"Content-Type": "application/json"},
+          )
+          try:
+              with urlopen(request, timeout=20) as response:
+                  if not json.load(response).get("ok"):
+                      raise SystemExit("Telegram rejected the notification.")
+          except HTTPError as error:
+              raise SystemExit(f"Telegram returned HTTP {error.code}.") from None
+          except (URLError, TimeoutError):
+              raise SystemExit("Unable to reach Telegram.") from None
+          '@ | python -

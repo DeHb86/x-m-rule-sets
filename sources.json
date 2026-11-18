@@ -1,0 +1,73 @@
+{
+  "it-site": [
+    "anime",
+    "block",
+    "cloudflare",
+    "cloudfront",
+    "digitalocean",
+    "discord",
+    "geoblock",
+    "google-ai",
+    "google-meet",
+    "google-play",
+    "hdrezka",
+    "hetzner",
+    "hodca",
+    "meta",
+    "news",
+    "ovh",
+    "porn",
+    "roblox",
+    "russia-inside",
+    "russia-outside",
+    "telegram",
+    "tiktok",
+    "twitter",
+    "ukraine-inside",
+    "youtube"
+  ],
+  "dav-site": [
+    "banned",
+    "category-ip-geo-detect",
+    "category-ru",
+    "private",
+    "wl-ru"
+  ],
+  "ros-site": [
+    "apple",
+    "category-ads",
+    "category-geoblock-ru",
+    "category-ru",
+    "epicgames",
+    "escapefromtarkov",
+    "faceit",
+    "github",
+    "google-deepmind",
+    "google-play",
+    "microsoft",
+    "origin",
+    "pinterest",
+    "private",
+    "push",
+    "riot",
+    "steam",
+    "telegram",
+    "torrent",
+    "twitch",
+    "twitch-ads",
+    "whitelist",
+    "win-spy",
+    "youtube"
+  ],
+  "dav-ip": [
+    "apple",
+    "private",
+    "ru",
+    "wl-ru"
+  ],
+  "ros-ip": [
+    "direct",
+    "private",
+    "whitelist"
+  ]
+}
