@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   schedule:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       run: ${{ steps.check.outputs.run }}
     steps:
@@ -42,16 +42,16 @@ jobs:
       error: ${{ steps.summary.outputs.error }}
       counts: ${{ steps.summary.outputs.counts }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
       - name: Build and validate
         run: python build.py --output out
       - name: Upload routing files
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: routing-rule-sets
           path: out/
@@ -84,7 +84,7 @@ jobs:
   notify:
     needs: [schedule, build]
     if: always() && needs.schedule.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 3
     steps:
       - name: Notify Telegram
