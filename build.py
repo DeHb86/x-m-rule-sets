@@ -360,7 +360,6 @@ def emit_mihomo(out, work, tool, domains, ips, domain_groups, ip_groups):
             yield "categories/" + name, entries
         for name, tags in groups.items():
             yield "groups/" + name, set().union(*(categories[tag] for tag in tags.split()))
-        yield "all", set().union(*categories.values())
 
     for name, entries in collections(domains, domain_groups):
         path = out / "mihomo" / "domain" / (name + ".mrs")

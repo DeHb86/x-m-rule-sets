@@ -109,8 +109,6 @@ jobs:
               parts = Path(relative).parts
               if relative in ("geosite.dat", "geoip.dat"):
                   name = relative
-              elif len(parts) == 3 and parts[0] == "mihomo" and parts[2].startswith("all."):
-                  name = f"{parts[1]}-{parts[2]}"
               elif len(parts) == 4 and parts[0] == "mihomo":
                   scope = {"categories": "category", "groups": "group"}[parts[2]]
                   name = f"{parts[1]}-{scope}-{parts[3]}"

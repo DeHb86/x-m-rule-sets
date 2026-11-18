@@ -65,10 +65,6 @@
 - [`domain-category-wl-ru.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/domain-category-wl-ru.mrs)
 - [`domain-category-youtube.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/domain-category-youtube.mrs)
 
-**Общие наборы**
-
-- [`domain-all.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/domain-all.mrs) + [`domain-all.classical.yaml`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/domain-all.classical.yaml)
-
 ### Mihomo — IP-сети
 
 **Группы**
@@ -96,10 +92,6 @@
 - [`ipcidr-category-twitter.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/ipcidr-category-twitter.mrs)
 - [`ipcidr-category-viber_aws_ip.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/ipcidr-category-viber_aws_ip.mrs)
 - [`ipcidr-category-whitelist.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/ipcidr-category-whitelist.mrs)
-
-**Общие наборы**
-
-- [`ipcidr-all.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/ipcidr-all.mrs)
 
 В Mihomo используйте `format: mrs` с `behavior: domain` или `behavior: ipcidr`.
 Для указанного рядом файла `.classical.yaml` добавьте второй провайдер с `format: yaml` и `behavior: classical`, если нужно полное покрытие набора.
