@@ -85,7 +85,8 @@ def load_tool(entry):
     if asset.endswith(".zip"):
         with zipfile.ZipFile(io.BytesIO(blob)) as archive:
             members = [member for member in archive.namelist()
-                       if Path(member).name == executable]
+                       if (Path(member).suffix.lower() == ".exe" if os.name == "nt"
+                           else Path(member).name == executable)]
             if len(members) != 1:
                 raise ValueError(f"Unexpected ZIP layout for {name}")
             binary = archive.read(members[0])
