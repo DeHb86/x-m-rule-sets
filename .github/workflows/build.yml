@@ -80,8 +80,71 @@ jobs:
                   print(f"error={reason}", file=output)
           PY
 
+  publish:
+    needs: build
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          name: routing-rule-sets
+          path: out
+      - name: Prepare individual release assets
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          import shutil
+
+          output = Path("out")
+          assets = Path("release-assets")
+          assets.mkdir()
+          manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+          names = {}
+          for relative, info in manifest["files"].items():
+              source = output / relative
+              parts = Path(relative).parts
+              if relative in ("geosite.dat", "geoip.dat"):
+                  name = relative
+              elif len(parts) == 3 and parts[0] == "mihomo" and parts[2].startswith("all."):
+                  name = f"{parts[1]}-{parts[2]}"
+              elif len(parts) == 4 and parts[0] == "mihomo":
+                  scope = {"categories": "category", "groups": "group"}[parts[2]]
+                  name = f"{parts[1]}-{scope}-{parts[3]}"
+              else:
+                  raise ValueError(f"Unexpected build output: {relative}")
+              if name in names or hashlib.sha256(source.read_bytes()).hexdigest() != info["sha256"]:
+                  raise ValueError(f"Duplicate asset or invalid checksum: {relative}")
+              names[name] = relative
+              shutil.copyfile(source, assets / name)
+          manifest["release_assets"] = dict(sorted(names.items()))
+          (assets / "manifest.json").write_text(
+              json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag="rules-${GITHUB_RUN_NUMBER}"
+          if state=$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null); then
+            if [[ "$state" == "false" ]]; then
+              printf 'Release %s is already published.\n' "$tag"
+              exit 0
+            fi
+          else
+            gh release create "$tag" --draft --target "$GITHUB_SHA" \
+              --title "Routing rule sets $GITHUB_RUN_NUMBER" \
+              --notes "GitHub Actions: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          fi
+          gh release upload "$tag" release-assets/* --clobber
+          gh release edit "$tag" --draft=false --latest
+
   notify:
-    needs: [schedule, build]
+    needs: [schedule, build, publish]
     if: always() && needs.schedule.outputs.run == 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 3
@@ -91,6 +154,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           BUILD_STATUS: ${{ needs.build.result }}
+          PUBLISH_STATUS: ${{ needs.publish.result }}
           BUILD_ERROR: ${{ needs.build.outputs.error }}
           BUILD_COUNTS: ${{ needs.build.outputs.counts }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -108,8 +172,11 @@ jobs:
               raise SystemExit(0)
 
           status = os.environ["BUILD_STATUS"]
-          if status == "success":
-              message = "Сборка x-m-rule-sets прошла успешно. " + os.environ["BUILD_COUNTS"]
+          if status == "success" and os.environ["PUBLISH_STATUS"] == "success":
+              message = "Релиз x-m-rule-sets опубликован. " + os.environ["BUILD_COUNTS"]
+              message += "\n" + os.environ["RUN_URL"].split("/actions/")[0] + "/releases/latest"
+          elif status == "success":
+              message = "Сборка x-m-rule-sets прошла, публикация релиза завершилась с ошибкой."
           else:
               reason = os.environ["BUILD_ERROR"] or "См. журнал запуска."
               message = f"Сборка x-m-rule-sets: {status}. {reason}"
