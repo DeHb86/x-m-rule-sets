@@ -36,7 +36,7 @@ jobs:
   build:
     needs: schedule
     if: needs.schedule.outputs.run == 'true'
-    runs-on: windows-2022
+    runs-on: ubuntu-26.04
     timeout-minutes: 25
     outputs:
       error: ${{ steps.summary.outputs.error }}
@@ -59,9 +59,8 @@ jobs:
       - name: Collect build summary
         id: summary
         if: always()
-        shell: pwsh
         run: |
-          @'
+          python3 - <<'PY'
           import json
           import os
           from pathlib import Path
@@ -79,7 +78,7 @@ jobs:
               if error_path.exists():
                   reason = " ".join(error_path.read_text(encoding="utf-8").splitlines())
                   print(f"error={reason}", file=output)
-          '@ | python -
+          PY
 
   notify:
     needs: [schedule, build]

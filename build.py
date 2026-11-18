@@ -1,5 +1,6 @@
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+import gzip
 import hashlib
 import io
 import ipaddress
@@ -7,7 +8,9 @@ import json
 import os
 from pathlib import Path
 import re
+import platform
 import subprocess
+import tarfile
 from urllib.request import urlopen
 import zipfile
 
@@ -42,13 +45,23 @@ for names in IT_IP.values():
     for tag in names.split():
         SOURCES[f"it-ip-{tag}"] = IT + tag.replace("-", "_") + "_ipcidr.mrs"
 
-TOOLS = {
+WINDOWS_TOOLS = {
     "mihomo": ("MetaCubeX/mihomo", "v1.19.34", "mihomo-windows-amd64-v1-v1.19.34.zip",
                "703e325bfeee582f874b06d054eaae55ab7c194645d1835411685aafa85da5ea"),
     "sing-box": ("SagerNet/sing-box", "v1.14.4", "sing-box-1.14.4-windows-amd64.zip",
                  "99185d75d314a07dbba4a130c8ad986cbeb629a07927975636b341ca61f991df"),
     "xray": ("XTLS/Xray-core", "v26.11.9", "Xray-windows-64.zip",
              "1262522266337b824f07beb8e1375786b437683b3890105469088f8e17e0a69d"),
+}
+
+
+LINUX_TOOLS = {
+    "mihomo": ("MetaCubeX/mihomo", "v1.19.34", "mihomo-linux-amd64-v1-v1.19.34.gz",
+               "0c07340a01408d033dda4088ea2a4c1e4d82aeed7b2f84f7c046e93b6ff3290c"),
+    "sing-box": ("SagerNet/sing-box", "v1.14.4", "sing-box-1.14.4-linux-amd64.tar.gz",
+                 "699a1b510aa4396b2176d32d1181920399ebf1e267835da6f3b598d0f7c24968"),
+    "xray": ("XTLS/Xray-core", "v26.11.9", "Xray-linux-64.zip",
+             "b651f7e1d9966ee2c1b1ee1bf8b52c72771824d3065dce96bbc8bcc19ed95f82"),
 }
 
 
@@ -67,13 +80,28 @@ def load_tool(entry):
     blob = download(url)
     if digest(blob) != expected:
         raise ValueError(f"Unexpected digest for {name}")
-    target = ROOT / "tools" / (name + ".exe")
-    with zipfile.ZipFile(io.BytesIO(blob)) as archive:
-        members = [member for member in archive.namelist()
-                   if Path(member).suffix.lower() == ".exe"]
-        if len(members) != 1:
-            raise ValueError(f"Unexpected archive layout for {name}: {members}")
-        target.write_bytes(archive.read(members[0]))
+    executable = name + ".exe" if os.name == "nt" else name
+    target = ROOT / "tools" / executable
+    if asset.endswith(".zip"):
+        with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+            members = [member for member in archive.namelist()
+                       if Path(member).name == executable]
+            if len(members) != 1:
+                raise ValueError(f"Unexpected ZIP layout for {name}")
+            binary = archive.read(members[0])
+    elif asset.endswith(".tar.gz"):
+        with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as archive:
+            members = [member for member in archive.getmembers()
+                       if member.isfile() and Path(member.name).name == executable]
+            if len(members) != 1:
+                raise ValueError(f"Unexpected tar layout for {name}")
+            with archive.extractfile(members[0]) as stream:
+                binary = stream.read()
+    else:
+        binary = gzip.decompress(blob)
+    target.write_bytes(binary)
+    if os.name != "nt":
+        target.chmod(0o755)
     return name, target
 
 
@@ -389,8 +417,11 @@ def main():
     staging = Path(tempfile.mkdtemp(prefix="staging-", dir=ROOT))
 
     print("Resolving latest sources and downloading verified tools", flush=True)
+    tool_releases = {"Windows": WINDOWS_TOOLS, "Linux": LINUX_TOOLS}.get(platform.system())
+    if tool_releases is None or platform.machine().lower() not in ("amd64", "x86_64"):
+        raise ValueError("The build tools require x86-64 Windows or Linux")
     with ThreadPoolExecutor(max_workers=12) as pool:
-        tool_tasks = [pool.submit(load_tool, entry) for entry in TOOLS.items()]
+        tool_tasks = [pool.submit(load_tool, entry) for entry in tool_releases.items()]
         def resolve(url):
             if url.startswith(RAW):
                 owner, repo, branch, path = url.removeprefix(RAW).split("/", 3)
@@ -443,7 +474,7 @@ def main():
     manifest = {
         "sources": {name: {"url": url, "sha256": digest(blobs[name])} for name, url in source_urls.items()},
         "tools": {name: {"repository": repo, "version": tag, "archive": archive, "sha256": sha}
-                  for name, (repo, tag, archive, sha) in TOOLS.items()},
+                  for name, (repo, tag, archive, sha) in tool_releases.items()},
         "domain_categories": {name: len(entries) for name, entries in sorted(domains.items())},
         "ip_categories": {name: {"cidr": len(entries), "collapsed_cidr": len(collapsed(entries))}
                           for name, entries in sorted(ips.items())},
