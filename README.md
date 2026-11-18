@@ -57,7 +57,10 @@
 - [`domain-category-steam.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/domain-category-steam.mrs)
 - [`domain-category-telegram.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/domain-category-telegram.mrs)
 - [`domain-category-tiktok.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/domain-category-tiktok.mrs)
-- [`domain-category-trackers.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/domain-category-trackers.mrs)
+- [`domain-category-torrent-websites.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/domain-category-torrent-websites.mrs)
+- [`domain-category-torrent-clients.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/domain-category-torrent-clients.mrs)
+- [`domain-category-hdrezka.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/domain-category-hdrezka.mrs)
+- [`domain-category-announce-retracker.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/domain-category-announce-retracker.mrs)
 - [`domain-category-twitch-ads.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/domain-category-twitch-ads.mrs)
 - [`domain-category-twitch.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/domain-category-twitch.mrs)
 - [`domain-category-twitter.mrs`](https://github.com/DeHb86/x-m-rule-sets/releases/latest/download/domain-category-twitter.mrs)
@@ -97,3 +100,11 @@
 Для указанного рядом файла `.classical.yaml` добавьте второй провайдер с `format: yaml` и `behavior: classical`, если нужно полное покрытие набора.
 
 </details>
+
+## Порядок правил для торрент-трафика
+
+1. Блокировка `announce-retracker`, в том числе известных DHT-хостов.
+2. Маршрутизация `torrent-websites` и `torrent-clients` через нужный маршрут.
+3. Общие правила группы `block`, `from-russia` и других групп.
+
+В Xray используйте одноимённые теги GeoSite. В Mihomo для первых двух шагов используйте отдельные файлы категорий. Такой порядок сохраняет доступ к сайтам, попадающим под более широкие правила, например под суффикс `ua` категории `block`. Для запрета соединений с пирами применяйте правила BitTorrent в своём конфиге отдельно.

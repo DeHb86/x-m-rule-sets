@@ -35,6 +35,8 @@ SOURCES = {
     "dav-ip": DAV + "geoip.dat",
     "ros-ip": ROS_IP + "geoip.dat",
     "nsfw": LEG + "oisd/nsfw_small.yaml",
+    "torrent-websites": LEG + "other/torrent-websites.mrs",
+    "torrent-trackers": LEG + "other/torrent-trackers.mrs",
     "discord-voice": LEG + "other/discord-voice-ip-list.mrs",
     "rknasnblock": LEG + "ru-bundle/rknasnblock.mrs",
     "wli": LEG + "other/wli.mrs",
@@ -203,22 +205,55 @@ def domain_key(entry):
     return kind, value if kind == 1 else value.lower()
 
 
-def make_domains(blobs):
+def torrent_domains(blobs, tool, work):
+    def read_rules(name):
+        source = work / (name + ".mrs")
+        target = work / (name + ".txt")
+        source.write_bytes(blobs[name])
+        run(tool, "convert-ruleset", "domain", "mrs", source, target)
+        entries = set()
+        for line in target.read_text(encoding="utf-8").splitlines():
+            domain = line.removeprefix("+.")
+            if not re.fullmatch(r"[a-z0-9_-]+(?:\.[a-z0-9_-]+)+", domain):
+                raise ValueError(f"Unsupported torrent domain pattern in {name}: {line}")
+            entries.add((2 if line.startswith("+.") else 3, domain, ()))
+        if not entries:
+            raise ValueError(f"Empty torrent source: {name}")
+        return entries
+
+    websites = read_rules("torrent-websites")
+    announce = read_rules("torrent-trackers")
+    required = set("rutracker.org rutor.info rutor.is nnmclub.to kinozal.tv thepiratebay.org 1337x.to".split())
+    dht = set("router.bittorrent.com router.utorrent.com dht.transmissionbt.com "
+              "dht.vuze.com dht.aelitis.com".split())
+    clients = set("qbittorrent.org transmissionbt.com deluge-torrent.org biglybt.com "
+                  "utorrent.com bittorrent.com".split())
+
+    # Shared hostnames retain web access. Explicit DHT bootstrap hosts are blocked.
+    websites = {entry for entry in websites if entry[1] not in dht | required | clients}
+    websites.update((2, name, ()) for name in required)
+    website_names = {entry[1] for entry in websites}
+    announce = {entry for entry in announce if entry[1] not in website_names | clients | dht}
+    announce.update((2, name, ()) for name in dht)
+    return websites, announce, {(2, name, ()) for name in clients}
+
+
+def make_domains(blobs, tool, work):
     it = decode_dat(blobs["it-site"], False)
     dav = decode_dat(blobs["dav-site"], False)
     ros = decode_dat(blobs["ros-site"], False)
     groups = {
-        "from-russia": "anime block geoblock news nsfw trackers meta tiktok twitter youtube "
+        "from-russia": "anime geoblock news nsfw torrent-websites torrent-clients hdrezka meta tiktok twitter youtube "
                        "discord telegram hodca banned twitch google-ai github",
         "to-russia": "russia-outside",
         "in-russia": "google-meet google-play roblox category-ru apple epicgames escapefromtarkov "
                      "faceit microsoft origin pinterest riot steam wl-ru push",
         "private": "private",
         "ip-checkers": "category-ip-geo-detect",
-        "block": "category-ads twitch-ads win-spy",
+        "block": "block announce-retracker category-ads twitch-ads win-spy",
     }
     tags = {tag for names in groups.values() for tag in names.split()}
-    it_sources = {"nsfw": "porn", "trackers": "hdrezka"}
+    it_sources = {"nsfw": "porn"}
     it_entries = {tag: set(it[it_sources.get(tag, tag)]) for tag in tags
                   if it_sources.get(tag, tag) in it}
     for tag in "cloudflare cloudfront digitalocean hetzner ovh".split():
@@ -231,11 +266,24 @@ def make_domains(blobs):
         result[tag].update(filtered)
         removed[tag] = len(dav[tag]) - len(filtered)
     ros_targets = {
-        "category-geoblock-ru": "geoblock", "torrent": "trackers",
+        "category-geoblock-ru": "geoblock",
         "google-deepmind": "google-ai", "whitelist": "wl-ru",
     }
-    for tag in ros:
+    for tag in ros.keys() - {"torrent"}:
         result[ros_targets.get(tag, tag)].update(ros[tag])
+
+    websites, announce, clients = torrent_domains(blobs, tool, work)
+    website_names = {entry[1] for entry in websites}
+    announce_names = {entry[1] for entry in announce}
+    client_names = {entry[1] for entry in clients}
+    for entries in result.values():
+        entries.difference_update({entry for entry in entries
+                                   if entry[0] in (2, 3) and
+                                   entry[1] in website_names | announce_names | client_names})
+    result["torrent-websites"] = websites
+    result["torrent-clients"] = clients
+    result["announce-retracker"] = announce
+    result["block"].update(announce)
 
     nsfw_lines = blobs["nsfw"].decode().splitlines()
     for line in nsfw_lines:
@@ -253,7 +301,7 @@ def make_domains(blobs):
             merged.setdefault(domain_key(entry), set()).update(entry[2])
         result[tag] = {(kind, value, tuple(sorted(attrs)))
                        for (kind, value), attrs in merged.items()}
-    if set(result) != tags or len(tags) != 38 or not all(result.values()):
+    if set(result) != tags or len(tags) != 41 or not all(result.values()):
         raise ValueError("Invalid domain category mapping")
     return result, groups, removed
 
@@ -459,7 +507,7 @@ def main():
         removed = sorted(set(tags) - actual)
         if added or removed:
             raise ValueError(f"{name}: added categories {added}, removed categories {removed}")
-    domains, domain_groups, dav_removed = make_domains(blobs)
+    domains, domain_groups, dav_removed = make_domains(blobs, tools["mihomo"], work)
     ips, ip_groups = make_ips(blobs, tools, work)
     print(f"Building {len(domains)} domain and {len(ips)} IP categories", flush=True)
     for name, payload, is_ip in (("geosite", domains, False), ("geoip", ips, True)):
