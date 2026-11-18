@@ -38,6 +38,9 @@ jobs:
     if: needs.schedule.outputs.run == 'true'
     runs-on: windows-2022
     timeout-minutes: 25
+    outputs:
+      error: ${{ steps.summary.outputs.error }}
+      counts: ${{ steps.summary.outputs.counts }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,19 +56,49 @@ jobs:
           name: routing-rule-sets
           path: out/
           if-no-files-found: error
-      - name: Notify Telegram
+      - name: Collect build summary
+        id: summary
         if: always()
         shell: pwsh
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          BUILD_STATUS: ${{ job.status }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           @'
           import json
           import os
           from pathlib import Path
+
+          manifest_path = Path("out/manifest.json")
+          error_path = Path("build-error.txt")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              if manifest_path.exists():
+                  manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                  print(
+                      f"counts=GeoSite: {len(manifest['domain_categories'])} категорий. "
+                      f"GeoIP: {len(manifest['ip_categories'])} категорий.",
+                      file=output,
+                  )
+              if error_path.exists():
+                  reason = " ".join(error_path.read_text(encoding="utf-8").splitlines())
+                  print(f"error={reason}", file=output)
+          '@ | python -
+
+  notify:
+    needs: [schedule, build]
+    if: always() && needs.schedule.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Notify Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BUILD_STATUS: ${{ needs.build.result }}
+          BUILD_ERROR: ${{ needs.build.outputs.error }}
+          BUILD_COUNTS: ${{ needs.build.outputs.counts }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
           from urllib.error import HTTPError, URLError
           from urllib.request import Request, urlopen
 
@@ -77,29 +110,29 @@ jobs:
 
           status = os.environ["BUILD_STATUS"]
           if status == "success":
-              manifest = json.loads(Path("out/manifest.json").read_text(encoding="utf-8"))
-              message = (
-                  "Сборка x-m-rule-sets прошла успешно. "
-                  f"GeoSite: {len(manifest['domain_categories'])} категорий. "
-                  f"GeoIP: {len(manifest['ip_categories'])} категорий."
-              )
+              message = "Сборка x-m-rule-sets прошла успешно. " + os.environ["BUILD_COUNTS"]
           else:
-              error = Path("build-error.txt")
-              reason = error.read_text(encoding="utf-8") if error.exists() else "См. журнал запуска."
+              reason = os.environ["BUILD_ERROR"] or "См. журнал запуска."
               message = f"Сборка x-m-rule-sets: {status}. {reason}"
           message += "\n" + os.environ["RUN_URL"]
-
           request = Request(
               f"https://api.telegram.org/bot{token}/sendMessage",
               data=json.dumps({"chat_id": chat, "text": message}).encode("utf-8"),
               headers={"Content-Type": "application/json"},
           )
           try:
-              with urlopen(request, timeout=20) as response:
+              with urlopen(request, timeout=25) as response:
                   if not json.load(response).get("ok"):
                       raise SystemExit("Telegram rejected the notification.")
           except HTTPError as error:
               raise SystemExit(f"Telegram returned HTTP {error.code}.") from None
-          except (URLError, TimeoutError):
-              raise SystemExit("Unable to reach Telegram.") from None
-          '@ | python -
+          except URLError as error:
+              reason = error.reason
+              raise SystemExit(
+                  f"Telegram connection error: {type(reason).__name__}, "
+                  f"errno={getattr(reason, 'errno', None)}."
+              ) from None
+          except TimeoutError:
+              raise SystemExit("Telegram connection timed out.") from None
+          print("Telegram accepted the notification.")
+          PY
