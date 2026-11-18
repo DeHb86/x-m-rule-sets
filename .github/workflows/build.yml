@@ -85,6 +85,7 @@ jobs:
     runs-on: ubuntu-26.04
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/download-artifact@v6
         with:
@@ -129,16 +130,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          tag="rules-${GITHUB_RUN_NUMBER}"
+          created_at=$(gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')
+          tag=$(TZ=Europe/Moscow date -d "$created_at" +%Y%m%d%H%M)
+          notes="GitHub Actions: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           if state=$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null); then
+            existing_notes=$(gh release view "$tag" --json body --jq '.body')
+            if [[ "$existing_notes" != "$notes" ]]; then
+              printf 'Release tag %s belongs to a different run.\n' "$tag" >&2
+              exit 1
+            fi
             if [[ "$state" == "false" ]]; then
               printf 'Release %s is already published.\n' "$tag"
               exit 0
             fi
           else
             gh release create "$tag" --draft --target "$GITHUB_SHA" \
-              --title "Routing rule sets $GITHUB_RUN_NUMBER" \
-              --notes "GitHub Actions: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+              --title "$tag" \
+              --notes "$notes"
           fi
           gh release upload "$tag" release-assets/* --clobber
           gh release edit "$tag" --draft=false --latest
