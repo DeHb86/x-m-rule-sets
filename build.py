@@ -516,13 +516,18 @@ def main():
             raise ValueError(f"{name}: added categories {added}, removed categories {removed}")
     domains, domain_groups, dav_removed = make_domains(blobs, tools["mihomo"], work)
     ips, ip_groups = make_ips(blobs, tools, work)
-    print(f"Building {len(domains)} domain and {len(ips)} IP categories", flush=True)
-    for name, payload, is_ip in (("geosite", domains, False), ("geoip", ips, True)):
+    geosite = domains.copy()
+    for name in ("from-russia", "in-russia"):
+        if name in geosite:
+            raise ValueError(f"GeoSite aggregate conflicts with a category: {name}")
+        geosite[name] = set().union(*(domains[tag] for tag in domain_groups[name].split()))
+    print(f"Building {len(geosite)} domain and {len(ips)} IP categories", flush=True)
+    for name, payload, is_ip in (("geosite", geosite, False), ("geoip", ips, True)):
         path = staging / (name + ".dat")
         path.write_bytes(encode_dat(payload, is_ip))
         if decode_dat(path.read_bytes(), is_ip) != payload:
             raise ValueError(f"DAT round trip changed {name}")
-    validate_xray(staging, work, tools["xray"], domains, ips)
+    validate_xray(staging, work, tools["xray"], geosite, ips)
     print("Xray config test passed. Compiling and checking MRS providers", flush=True)
     emit_mihomo(staging, work, tools["mihomo"], domains, ips, domain_groups, ip_groups)
     paths = sorted(path for path in staging.rglob("*") if path.is_file())
@@ -530,7 +535,7 @@ def main():
         "sources": {name: {"url": url, "sha256": digest(blobs[name])} for name, url in source_urls.items()},
         "tools": {name: {"repository": repo, "version": tag, "archive": archive, "sha256": sha}
                   for name, (repo, tag, archive, sha) in tool_releases.items()},
-        "domain_categories": {name: len(entries) for name, entries in sorted(domains.items())},
+        "domain_categories": {name: len(entries) for name, entries in sorted(geosite.items())},
         "ip_categories": {name: {"cidr": len(entries), "collapsed_cidr": len(collapsed(entries))}
                           for name, entries in sorted(ips.items())},
         "domain_groups": {name: tags.split() for name, tags in domain_groups.items()},
