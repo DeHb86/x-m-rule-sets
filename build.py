@@ -24,6 +24,9 @@ ROS_SITE = RELEASE + "hydraponique/roscomvpn-geosite/releases/latest/download/"
 ROS_IP = RELEASE + "hydraponique/roscomvpn-geoip/releases/latest/download/"
 LEG = RAW + "legiz-ru/mihomo-rule-sets/main/"
 SB = RAW + "legiz-ru/sb-rule-sets/main/"
+HODCA_IP = "cloudflare cloudfront digitalocean hetzner ovh".split()
+GAME_DOMAINS = "roblox epicgames escapefromtarkov origin riot steam".split()
+
 IT_IP = {
     "from-russia": "cloudflare cloudfront digitalocean discord hetzner meta ovh telegram twitter",
     "in-russia": "roblox google-meet",
@@ -246,16 +249,16 @@ def make_domains(blobs, tool, work):
         "from-russia": "anime geoblock news nsfw torrent-websites torrent-clients hdrezka meta tiktok twitter youtube "
                        "discord telegram hodca banned twitch google-ai github",
         "to-russia": "russia-outside",
-        "in-russia": "google-meet google-play roblox category-ru apple epicgames escapefromtarkov "
-                     "faceit microsoft origin pinterest riot steam wl-ru push",
+        "in-russia": "google-meet google-play games category-ru apple "
+                     "faceit microsoft pinterest wl-ru push",
         "private": "private",
         "ip-checkers": "category-ip-geo-detect",
         "block": "block announce-retracker category-ads twitch-ads win-spy",
     }
     tags = {tag for names in groups.values() for tag in names.split()}
-    it_sources = {"nsfw": "porn"}
+    it_sources = {"nsfw": "porn", "banned": "block", "games": "roblox"}
     it_entries = {tag: set(it[it_sources.get(tag, tag)]) for tag in tags
-                  if it_sources.get(tag, tag) in it}
+                  if tag != "block" and it_sources.get(tag, tag) in it}
     for tag in "cloudflare cloudfront digitalocean hetzner ovh".split():
         it_entries["hodca"].update(it[tag])
     it_keys = {domain_key(entry) for entries in it_entries.values() for entry in entries}
@@ -270,7 +273,7 @@ def make_domains(blobs, tool, work):
         "google-deepmind": "google-ai", "whitelist": "wl-ru",
     }
     for tag in ros.keys() - {"torrent"}:
-        result[ros_targets.get(tag, tag)].update(ros[tag])
+        result["games" if tag in GAME_DOMAINS else ros_targets.get(tag, tag)].update(ros[tag])
 
     websites, announce, clients = torrent_domains(blobs, tool, work)
     website_names = {entry[1] for entry in websites}
@@ -283,7 +286,9 @@ def make_domains(blobs, tool, work):
     result["torrent-websites"] = websites
     result["torrent-clients"] = clients
     result["announce-retracker"] = announce
-    result["block"].update(announce)
+    for tag in groups["block"].split():
+        if tag != "block":
+            result["block"].update(result[tag])
 
     nsfw_lines = blobs["nsfw"].decode().splitlines()
     for line in nsfw_lines:
@@ -301,7 +306,7 @@ def make_domains(blobs, tool, work):
             merged.setdefault(domain_key(entry), set()).update(entry[2])
         result[tag] = {(kind, value, tuple(sorted(attrs)))
                        for (kind, value), attrs in merged.items()}
-    if set(result) != tags or len(tags) != 41 or not all(result.values()):
+    if set(result) != tags or len(tags) != 36 or not all(result.values()):
         raise ValueError("Invalid domain category mapping")
     return result, groups, removed
 
@@ -351,6 +356,8 @@ def make_ips(blobs, tools, work):
 
     result = {tag: decode_mrs("it-ip-" + tag)
               for names in IT_IP.values() for tag in names.split()}
+    result["hodca"] = set().union(*(result.pop(tag) for tag in HODCA_IP))
+    result["games"] = result.pop("roblox")
     result["discord"].update(decode_mrs("discord-voice"))
     result["telegram"].update(extra_telegram)
     result.update({
@@ -362,11 +369,11 @@ def make_ips(blobs, tools, work):
         "private": private,
     })
     groups = {
-        "from-russia": IT_IP["from-russia"] + " viber_aws_ip rknasnblock",
-        "in-russia": IT_IP["in-russia"] + " apple whitelist direct",
+        "from-russia": "hodca discord meta telegram twitter viber_aws_ip rknasnblock",
+        "in-russia": "games google-meet apple whitelist direct",
         "block": "private",
     }
-    if len(result) != 17 or not all(result.values()):
+    if len(result) != 13 or not all(result.values()):
         raise ValueError("Invalid IP category mapping")
     if set(result) != {tag for names in groups.values() for tag in names.split()}:
         raise ValueError("IP groups do not match the category set")
